@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "learnwhitehack"
+version = "0.1.0"
+description = "Toolkit OSINT et ethical hacking pour environnements de test autorisés"
+requires-python = ">=3.9"
+dependencies = [
+    "click>=8.1",
+    "requests>=2.31",
+    "pydantic>=2.0",
+    "rich>=13.0",
+    "tomli>=2.0; python_version < '3.11'",
+    "structlog>=23.0",
+    "dnspython>=2.4",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "pytest-cov",
+    "responses>=0.24",
+    "ruff>=0.3",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+lwh = "learnwhitehack.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/learnwhitehack"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "S", "B"]
+ignore = [
+    "S101",  # assert in tests
+    "S311",  # random not cryptographic — voulu pour le jitter
+]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"

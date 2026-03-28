@@ -1,0 +1,16 @@
+# Même liste utilisée par plugin_fuzzer.py comme wordlist de plugins à tester
+seriously-simple-podcasting
+woocommerce
+contact-form-7
+yoast-seo
+elementor
+akismet
+jetpack
+wordfence
+all-in-one-seo-pack
+wpforms-lite
+wp-mail-smtp
+advanced-custom-fields
+redirection
+updraftplus
+wp-optimize

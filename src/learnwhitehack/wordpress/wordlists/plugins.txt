@@ -1,0 +1,32 @@
+# Wordlist de plugins WordPress courants
+# Source: https://github.com/wpscanteam/wpscan / liste publique
+seriously-simple-podcasting
+woocommerce
+contact-form-7
+yoast-seo
+elementor
+akismet
+jetpack
+wordfence
+all-in-one-seo-pack
+w3-total-cache
+wp-super-cache
+really-simple-ssl
+updraftplus
+duplicate-page
+classic-editor
+mailchimp-for-wp
+ninja-forms
+wpforms-lite
+tablepress
+the-events-calendar
+advanced-custom-fields
+wp-mail-smtp
+redirection
+google-analytics-for-wordpress
+wp-optimize
+litespeed-cache
+smush
+shortpixel-image-optimiser
+cookie-notice
+wp-fastest-cache

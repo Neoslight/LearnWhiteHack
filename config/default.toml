@@ -1,0 +1,39 @@
+# Configuration par défaut de learnwhitehack
+# Toutes les valeurs peuvent être surchargées via :
+#   - un fichier targets.toml (--config)
+#   - des variables d'env LWH_SECTION_KEY
+#   - les flags CLI (--target, --output-dir, etc.)
+
+[target]
+url  = ""        # URL complète de la cible (ex: https://example.com)
+ip   = ""        # IP de la cible (pour les modules scanner)
+name = "unnamed" # Label utilisé dans les noms de rapports
+
+[http]
+timeout    = 10   # Timeout par requête HTTP (secondes)
+retries    = 2    # Nombre de retries sur erreur réseau
+verify_ssl = true # Mettre à false pour Burp Suite (warning affiché)
+
+[stealth]
+min_delay      = 1.0     # Délai minimum entre requêtes (secondes)
+max_delay      = 3.5     # Délai maximum entre requêtes (secondes)
+ua_pool        = "builtin"  # "builtin" ou chemin vers fichier .txt de UAs
+proxies        = []      # Ex: ["http://127.0.0.1:8080"] pour Burp Suite
+respect_robots = false   # Respecter robots.txt (false = mode test autorisé)
+
+[output]
+dir    = "reports" # Dossier de sortie pour les rapports JSON/MD
+format = "json"    # "json" | "text" | "both"
+pretty = true      # Indentation JSON
+
+[scan]
+port_range     = "1-1024" # Plage de ports TCP à scanner
+threads        = 50       # Threads parallèles pour le port scanner
+banner_timeout = 3        # Timeout pour le banner grabbing (secondes)
+
+[nvd]
+api_key     = "" # Clé API NVD (optionnel, augmente les quotas) — LWH_NVD_API_KEY
+max_results = 20 # Nombre max de CVEs retournées par recherche
+
+[shodan]
+api_key = "" # Clé API Shodan — LWH_SHODAN_API_KEY

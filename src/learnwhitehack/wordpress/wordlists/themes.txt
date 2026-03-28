@@ -1,0 +1,21 @@
+# Wordlist de thèmes WordPress courants
+twentytwentyfour
+twentytwentythree
+twentytwentytwo
+twentytwentyone
+twentytwenty
+astra
+generatepress
+oceanwp
+flatsome
+divi
+avada
+betheme
+salient
+bridge
+the7
+newspaper
+enfold
+porto
+total
+jupiter

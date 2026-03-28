@@ -1,0 +1,27 @@
+# Exemple de fichier de configuration de cible
+# Copier en config/targets.toml et adapter (fichier gitignored)
+
+[target]
+url  = "https://www.supercinebattle-test.fr"
+ip   = "51.159.54.97"
+name = "supercinebattle-test"
+
+[http]
+timeout    = 15
+verify_ssl = true
+
+[stealth]
+min_delay = 0.5   # Plus rapide sur environnement de test local
+max_delay = 1.5
+proxies   = []    # Décommenter pour Burp: ["http://127.0.0.1:8080"]
+
+[output]
+dir    = "reports/supercinebattle"
+format = "both"   # JSON + Markdown
+
+[scan]
+port_range = "1-65535" # Scan complet pour une cible de test
+threads    = 100
+
+[nvd]
+max_results = 10
