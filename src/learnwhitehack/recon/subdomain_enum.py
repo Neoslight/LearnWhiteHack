@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import socket
 from pathlib import Path
+from typing import Optional
 
 import requests
 
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.logger import get_logger
 from learnwhitehack.core.reporter import Report, Severity
+from learnwhitehack.core.state import ScanContext
 
 log = get_logger("recon.subdomain_enum")
 
@@ -51,6 +53,7 @@ def run(
     report: Report,
     wordlist_path: Path | None = None,
     bruteforce: bool = True,
+    context: Optional[ScanContext] = None,
 ) -> list[dict[str, object]]:
     """Énumère les sous-domaines via crt.sh et bruteforce DNS."""
     from urllib.parse import urlparse
@@ -118,5 +121,8 @@ def run(
             detail="Sous-domaines trouvés via Certificate Transparency (crt.sh) et bruteforce DNS.",
             evidence={"domain": root_domain, "subdomains": results[:50]},
         )
+
+    if context is not None:
+        context.subdomains_found = [r["subdomain"] for r in results]  # type: ignore[misc]
 
     return results

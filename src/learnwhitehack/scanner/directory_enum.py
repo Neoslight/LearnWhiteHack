@@ -5,11 +5,13 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 import re
+from typing import Optional
 
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.http_client import make_session
 from learnwhitehack.core.logger import get_logger
 from learnwhitehack.core.reporter import Report, Severity
+from learnwhitehack.core.state import ScanContext
 
 log = get_logger("scanner.directory_enum")
 
@@ -63,6 +65,7 @@ def run(
     wordlist_path: Path | None = None,
     extensions: list[str] | None = None,
     threads: int = 20,
+    context: Optional[ScanContext] = None,
 ) -> list[dict[str, object]]:
     """Bruteforce les chemins HTTP sur la cible."""
     base_url = cfg.target.url.rstrip("/")
@@ -136,5 +139,10 @@ def run(
                 detail="Ces chemins existent mais sont protégés.",
                 evidence={"paths": [r["path"] for r in found_403][:30]},
             )
+
+    if context is not None:
+        context.exposed_files = [
+            str(r["path"]) for r in results if r.get("status") in (200, 401, 403)
+        ]
 
     return results

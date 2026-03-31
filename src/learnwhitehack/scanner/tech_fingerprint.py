@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 
+from typing import Optional
+
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.http_client import make_session
 from learnwhitehack.core.logger import get_logger
 from learnwhitehack.core.reporter import Report, Severity
+from learnwhitehack.core.state import ScanContext
 
 log = get_logger("scanner.tech_fingerprint")
 
@@ -49,7 +52,7 @@ _HEADER_TECH: dict[str, str] = {
 }
 
 
-def run(cfg: AppConfig, report: Report) -> dict[str, list[str]]:
+def run(cfg: AppConfig, report: Report, context: Optional[ScanContext] = None) -> dict[str, list[str]]:
     """Fingerprinte la stack technique de la cible."""
     base_url = cfg.target.url.rstrip("/")
     if not base_url:
@@ -82,6 +85,26 @@ def run(cfg: AppConfig, report: Report) -> dict[str, list[str]]:
             log.info(f"  [yellow]{label}[/] : {val}")
             technologies.add(f"{label}: {val}")
             headers_info[header] = val
+
+    # Détection WAF via headers de réponse caractéristiques
+    _WAF_HEADERS: dict[str, str] = {
+        "cf-ray": "Cloudflare",
+        "x-sucuri-id": "Sucuri",
+        "x-fw-hash": "Wordfence",
+        "x-iinfo": "Imperva Incapsula",
+    }
+    waf_name: Optional[str] = None
+    resp_h = {k.lower(): v.lower() for k, v in resp.headers.items()}
+    for sig, label in _WAF_HEADERS.items():
+        if sig in resp_h:
+            waf_name = label
+            log.info(f"  [red]WAF détecté[/] : {label} (header: {sig})")
+            technologies.add(f"WAF: {label}")
+            break
+    if waf_name is None and "cloudflare" in resp_h.get("server", ""):
+        waf_name = "Cloudflare"
+        log.info("  [red]WAF détecté[/] : Cloudflare (Server header)")
+        technologies.add("WAF: Cloudflare")
 
     # Patterns HTML
     body_lower = resp.text.lower()
@@ -117,5 +140,20 @@ def run(cfg: AppConfig, report: Report) -> dict[str, list[str]]:
                 "revealing_headers": headers_info,
             },
         )
+
+    if context is not None:
+        context.technologies_detected.update(technologies)
+        if waf_name:
+            context.waf_detected = waf_name
+            report.add_finding(
+                module="scanner.tech_fingerprint",
+                severity=Severity.MEDIUM,
+                title=f"WAF détecté : {waf_name}",
+                detail=(
+                    f"Un pare-feu applicatif web ({waf_name}) a été identifié. "
+                    "Les modules d'injection adapteront automatiquement leur stratégie."
+                ),
+                evidence={"waf": waf_name, "target": base_url},
+            )
 
     return result
