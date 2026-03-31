@@ -6,6 +6,8 @@ import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TimeRemainingColumn
+
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.logger import get_logger
 from learnwhitehack.core.rate_limiter import shuffle_ports
@@ -42,13 +44,22 @@ def run(cfg: AppConfig, report: Report) -> list[int]:
     open_ports: list[int] = []
     start = time.monotonic()
 
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        futures = {executor.submit(_scan_port, ip, p, 1.0): p for p in ports}
-        for future in as_completed(futures):
-            port, is_open = future.result()
-            if is_open:
-                open_ports.append(port)
-                log.info(f"  [green]OUVERT[/] : {ip}:{port}")
+    with Progress(
+        "[progress.description]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"[cyan]Scan {ip}[/]", total=len(ports))
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = {executor.submit(_scan_port, ip, p, 1.0): p for p in ports}
+            for future in as_completed(futures):
+                port, is_open = future.result()
+                progress.advance(task)
+                if is_open:
+                    open_ports.append(port)
+                    log.info(f"  [green]OUVERT[/] : {ip}:{port}")
 
     elapsed = time.monotonic() - start
     open_ports.sort()

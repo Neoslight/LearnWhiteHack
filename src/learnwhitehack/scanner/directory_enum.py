@@ -7,6 +7,8 @@ from pathlib import Path
 import re
 from typing import Optional
 
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TimeRemainingColumn
+
 from learnwhitehack.core.config import AppConfig
 from learnwhitehack.core.http_client import make_session
 from learnwhitehack.core.logger import get_logger
@@ -104,18 +106,27 @@ def run(
 
     results: list[dict[str, object]] = []
 
-    with ThreadPoolExecutor(max_workers=threads) as executor:
-        futures = {
-            executor.submit(_check_path, session, base_url, p, cfg.http.timeout): p
-            for p in paths
-        }
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                code = result["status"]
-                icon = "[green]200[/]" if code == 200 else f"[yellow]{code}[/]"
-                log.info(f"  {icon} {result['path']} ({result['size']}B) {result['title']}")
-                results.append(result)
+    with Progress(
+        "[progress.description]{task.description}",
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"[cyan]Dir-enum {base_url}[/]", total=len(paths))
+        with ThreadPoolExecutor(max_workers=threads) as executor:
+            futures = {
+                executor.submit(_check_path, session, base_url, p, cfg.http.timeout): p
+                for p in paths
+            }
+            for future in as_completed(futures):
+                result = future.result()
+                progress.advance(task)
+                if result:
+                    code = result["status"]
+                    icon = "[green]200[/]" if code == 200 else f"[yellow]{code}[/]"
+                    log.info(f"  {icon} {result['path']} ({result['size']}B) {result['title']}")
+                    results.append(result)
 
     if results:
         # Séparer 200/403/redirects

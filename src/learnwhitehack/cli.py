@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import click
 
 from learnwhitehack.core.config import load_config
-from learnwhitehack.core.logger import setup_logging
+from learnwhitehack.core.logger import console, setup_logging
 from learnwhitehack.core.reporter import Report
 from learnwhitehack.core.state import ScanContext
 
@@ -285,8 +286,8 @@ def wp_full_recon(ctx: click.Context, max_author_id: int) -> None:
         login_enum.run(cfg, report, usernames=usernames)
 
     saved = report.save(cfg.output.dir, prefix="wp_full_recon")
-    click.echo(f"\nRapport sauvegardé : {saved}")
     report.print_summary()
+    console.print(f"\n[bold]Rapport sauvegardé :[/] {saved}")
 
 
 # ---------------------------------------------------------------------------
@@ -519,9 +520,6 @@ def run_all(ctx: click.Context, skip: tuple[str, ...]) -> None:
     report = obj["report"]
     skip_set = set(skip)
 
-    def should_run(module: str) -> bool:
-        return module not in skip_set
-
     # Initialisation du contexte partagé (blackboard)
     context = ScanContext(
         target_url=cfg.target.url,
@@ -531,125 +529,102 @@ def run_all(ctx: click.Context, skip: tuple[str, ...]) -> None:
     session_file = ScanContext.session_path(cfg.output.dir, cfg.target.url)
 
     def _checkpoint(module_name: str) -> None:
-        """Marque un module terminé et persiste le contexte sur disque."""
         context.mark_complete(module_name)
         context.save_to_disk(session_file)
 
-    click.echo(f"\n[lwh] Démarrage run-all → {cfg.target.url or cfg.target.ip}\n")
+    # Calcul du nombre total de modules à exécuter (hors skip)
+    _all_modules = [
+        "recon.whois", "recon.ssl", "recon.subdomains", "recon.headers",
+        "recon.sitemap", "recon.well_known", "recon.emails", "recon.js",
+        "recon.rss", "recon.cloud_buckets",
+        "scanner.tech", "scanner.dir", "scanner.graphql", "scanner.http3",
+        "wordpress.fingerprint",
+        "vuln.headers", "vuln.sqli", "vuln.lfi", "vuln.cve",
+        "vuln.llm_probe", "vuln.takeover",
+    ]
+    if cfg.target.ip:
+        _all_modules += ["scanner.ports", "scanner.banners"]
+    total_steps = len([m for m in _all_modules if m not in skip_set])
+    step = 0
+
+    def _run_module(key: str, fn, *args, **kwargs):
+        nonlocal step
+        if key in skip_set:
+            console.print(f"  [dim]skip  {key}[/]")
+            return None
+        step += 1
+        console.print(f"  [dim][{step:2d}/{total_steps}][/] [bold cyan]{key}[/] ", end="")
+        t = time.monotonic()
+        result = fn(*args, **kwargs)
+        elapsed = time.monotonic() - t
+        console.print(f"[green]✓[/] [dim]{elapsed:.1f}s[/]")
+        _checkpoint(key)
+        return result
+
+    console.print(f"\n[bold]lwh run-all[/] → [cyan]{cfg.target.url or cfg.target.ip}[/]\n")
 
     # Recon passive
-    if should_run("recon.whois"):
-        whois_lookup.run(cfg, report)
-        _checkpoint("recon.whois")
-    if should_run("recon.ssl"):
-        ssl_audit.run(cfg, report)
-        _checkpoint("recon.ssl")
-    if should_run("recon.subdomains"):
-        subdomain_enum.run(cfg, report, context=context)
-        _checkpoint("recon.subdomains")
-    if should_run("recon.headers"):
-        headers_audit.run(cfg, report)
-        _checkpoint("recon.headers")
-    if should_run("recon.sitemap"):
-        sitemap_crawler.run(cfg, report)
-        _checkpoint("recon.sitemap")
-    if should_run("recon.well_known"):
-        well_known.run(cfg, report)
-        _checkpoint("recon.well_known")
-    if should_run("recon.emails"):
-        email_harvester.run(cfg, report)
-        _checkpoint("recon.emails")
-    if should_run("recon.js"):
-        js_analyzer.run(cfg, report)
-        _checkpoint("recon.js")
-    if should_run("recon.rss"):
-        rss_metadata.run(cfg, report)
-        _checkpoint("recon.rss")
-    if should_run("recon.cloud_buckets"):
-        cloud_buckets.run(cfg, report)
-        _checkpoint("recon.cloud_buckets")
+    _run_module("recon.whois",        whois_lookup.run,    cfg, report)
+    _run_module("recon.ssl",          ssl_audit.run,       cfg, report)
+    _run_module("recon.subdomains",   subdomain_enum.run,  cfg, report, context=context)
+    _run_module("recon.headers",      headers_audit.run,   cfg, report)
+    _run_module("recon.sitemap",      sitemap_crawler.run, cfg, report)
+    _run_module("recon.well_known",   well_known.run,      cfg, report)
+    _run_module("recon.emails",       email_harvester.run, cfg, report)
+    _run_module("recon.js",           js_analyzer.run,     cfg, report)
+    _run_module("recon.rss",          rss_metadata.run,    cfg, report)
+    _run_module("recon.cloud_buckets", cloud_buckets.run,  cfg, report)
 
     # Scanner réseau (avant WordPress pour profiter du tech fingerprint)
-    if should_run("scanner.tech"):
-        tech_fingerprint.run(cfg, report, context=context)
-        _checkpoint("scanner.tech")
-    if should_run("scanner.dir"):
-        directory_enum.run(cfg, report, context=context)
-        _checkpoint("scanner.dir")
-    if should_run("scanner.graphql"):
-        graphql_enum.run(cfg, report, context=context)
-        _checkpoint("scanner.graphql")
-    if should_run("scanner.http3"):
-        http3_audit.run(cfg, report)
-        _checkpoint("scanner.http3")
+    _run_module("scanner.tech",    tech_fingerprint.run, cfg, report, context=context)
+    _run_module("scanner.dir",     directory_enum.run,   cfg, report, context=context)
+    _run_module("scanner.graphql", graphql_enum.run,     cfg, report, context=context)
+    _run_module("scanner.http3",   http3_audit.run,      cfg, report)
     if cfg.target.ip:
-        if should_run("scanner.ports"):
-            port_scanner.run(cfg, report)
-            _checkpoint("scanner.ports")
-        if should_run("scanner.banners"):
-            banner_grabber.run(cfg, report)
-            _checkpoint("scanner.banners")
+        _run_module("scanner.ports",   port_scanner.run,  cfg, report)
+        _run_module("scanner.banners", banner_grabber.run, cfg, report)
 
     # WordPress — seulement si détecté dans le contexte
     is_wordpress = any("wordpress" in t.lower() for t in context.technologies_detected)
     if not is_wordpress:
         from learnwhitehack.core.logger import get_logger as _gl
-        _gl("cli").info("[dim]WordPress non détecté dans le fingerprint → skip groupe wordpress[/]")
+        _gl("cli").info("[dim]WordPress non détecté → skip groupe wordpress[/]")
 
-    if should_run("wordpress.fingerprint"):
-        fp_result = fingerprint.run(cfg, report) if is_wordpress else {}
-        _checkpoint("wordpress.fingerprint")
+    if "wordpress.fingerprint" not in skip_set:
+        fp_result = _run_module("wordpress.fingerprint", fingerprint.run, cfg, report) if is_wordpress else {}
+        if fp_result is None:
+            fp_result = {}
     else:
+        console.print(f"  [dim]skip  wordpress.fingerprint[/]")
         fp_result = {}
 
     if is_wordpress:
-        if should_run("wordpress.api_users"):
-            api_users.run(cfg, report)
-            _checkpoint("wordpress.api_users")
-        if should_run("wordpress.author"):
-            author_archives.run(cfg, report)
-            _checkpoint("wordpress.author")
-        if should_run("wordpress.config_leaks"):
-            config_leaks.run(cfg, report)
-            _checkpoint("wordpress.config_leaks")
-        if should_run("wordpress.xmlrpc"):
-            xmlrpc_probe.run(cfg, report)
-            _checkpoint("wordpress.xmlrpc")
-        detected_plugins = fp_result.get("plugins", [])
-        if should_run("wordpress.plugin_fuzz") and detected_plugins:
-            plugin_fuzzer.run(cfg, report, plugins=detected_plugins)
-            _checkpoint("wordpress.plugin_fuzz")
+        _run_module("wordpress.api_users",    api_users.run,    cfg, report)
+        _run_module("wordpress.author",       author_archives.run, cfg, report)
+        _run_module("wordpress.config_leaks", config_leaks.run, cfg, report)
+        _run_module("wordpress.xmlrpc",       xmlrpc_probe.run, cfg, report)
+        detected_plugins = fp_result.get("plugins", []) if isinstance(fp_result, dict) else []
+        if detected_plugins:
+            _run_module("wordpress.plugin_fuzz", plugin_fuzzer.run, cfg, report, plugins=detected_plugins)
 
     # Vulnérabilités
-    if should_run("vuln.headers"):
-        header_injection.run(cfg, report)
-        _checkpoint("vuln.headers")
-    if should_run("vuln.sqli"):
-        sqli_probe.run(cfg, report, context=context)
-        _checkpoint("vuln.sqli")
-    if should_run("vuln.lfi"):
-        lfi_probe.run(cfg, report)
-        _checkpoint("vuln.lfi")
-    if should_run("vuln.cve"):
-        cve_search.run(cfg, report)
-        _checkpoint("vuln.cve")
-    if should_run("vuln.llm_probe"):
-        llm_probe.run(cfg, report)
-        _checkpoint("vuln.llm_probe")
-    if should_run("vuln.takeover"):
-        subdomain_takeover.run(cfg, report)
-        _checkpoint("vuln.takeover")
+    _run_module("vuln.headers",   header_injection.run, cfg, report)
+    _run_module("vuln.sqli",      sqli_probe.run,       cfg, report, context=context)
+    _run_module("vuln.lfi",       lfi_probe.run,        cfg, report)
+    _run_module("vuln.cve",       cve_search.run,       cfg, report)
+    _run_module("vuln.llm_probe", llm_probe.run,        cfg, report)
+    _run_module("vuln.takeover",  subdomain_takeover.run, cfg, report)
 
     # Rapport final
     saved = report.save(cfg.output.dir, prefix="run_all")
     report.print_summary()
-    click.echo(f"\nRapport JSON : {saved}")
-    click.echo(f"Rapport MD   : {saved.with_suffix('.md')}")
+    console.print(f"\n[bold]Rapport JSON :[/] {saved}")
+    console.print(f"[bold]Rapport MD   :[/] {saved.with_suffix('.md')}")
 
     # Export HTML automatique
     from learnwhitehack.reporting import html_export
     html_path = html_export.export(saved)
-    click.echo(f"Rapport HTML : {html_path}")
+    console.print(f"[bold]Rapport HTML :[/] {html_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -694,25 +669,33 @@ def resume(ctx: click.Context, session: Path | None) -> None:
 
     session_file = session or ScanContext.session_path(cfg.output.dir, cfg.target.url)
     if not session_file.exists():
-        click.echo(f"[Erreur] Fichier session introuvable : {session_file}", err=True)
+        console.print(f"[bold red]Erreur[/] Fichier session introuvable : {session_file}")
         raise SystemExit(1)
 
     context = ScanContext.load_from_disk(session_file)
     obj["context"] = context
-    click.echo(f"\n[lwh] Reprise de session → {context.target_url}")
-    click.echo(f"  Modules déjà complétés : {context.completed_modules}\n")
+    console.print(f"\n[bold]lwh resume[/] → [cyan]{context.target_url}[/]")
+    if context.completed_modules:
+        console.print(f"  [dim]Déjà complétés : {', '.join(context.completed_modules)}[/]\n")
+
+    step = 0
 
     def _run_if_pending(key: str, fn, *args, **kwargs) -> object:  # type: ignore[type-arg]
-        """Lance fn seulement si le module n'est pas encore complété."""
+        nonlocal step
         if context.is_complete(key):
-            click.echo(f"  [skip] {key}")
+            console.print(f"  [dim]skip  {key}[/]")
             return None
+        step += 1
+        console.print(f"  [dim][{step:2d}][/] [bold cyan]{key}[/] ", end="")
+        t = time.monotonic()
         result = fn(*args, **kwargs)
+        elapsed = time.monotonic() - t
+        console.print(f"[green]✓[/] [dim]{elapsed:.1f}s[/]")
         context.mark_complete(key)
         context.save_to_disk(session_file)
         return result
 
-    # Ordre identique à run-all pour respecter les dépendances de synergy
+    # Ordre identique à run-all
     _run_if_pending("recon.whois",        whois_lookup.run,      cfg, report)
     _run_if_pending("recon.ssl",          ssl_audit.run,         cfg, report)
     _run_if_pending("recon.subdomains",   subdomain_enum.run,    cfg, report, context=context)
@@ -724,13 +707,13 @@ def resume(ctx: click.Context, session: Path | None) -> None:
     _run_if_pending("recon.rss",          rss_metadata.run,      cfg, report)
     _run_if_pending("recon.cloud_buckets", cloud_buckets.run,    cfg, report)
 
-    _run_if_pending("scanner.tech",       tech_fingerprint.run,  cfg, report, context=context)
-    _run_if_pending("scanner.dir",        directory_enum.run,    cfg, report, context=context)
-    _run_if_pending("scanner.graphql",    graphql_enum.run,      cfg, report, context=context)
-    _run_if_pending("scanner.http3",      http3_audit.run,       cfg, report)
+    _run_if_pending("scanner.tech",    tech_fingerprint.run,  cfg, report, context=context)
+    _run_if_pending("scanner.dir",     directory_enum.run,    cfg, report, context=context)
+    _run_if_pending("scanner.graphql", graphql_enum.run,      cfg, report, context=context)
+    _run_if_pending("scanner.http3",   http3_audit.run,       cfg, report)
     if cfg.target.ip:
-        _run_if_pending("scanner.ports",   port_scanner.run,     cfg, report)
-        _run_if_pending("scanner.banners", banner_grabber.run,   cfg, report)
+        _run_if_pending("scanner.ports",   port_scanner.run,  cfg, report)
+        _run_if_pending("scanner.banners", banner_grabber.run, cfg, report)
 
     is_wordpress = any("wordpress" in t.lower() for t in context.technologies_detected)
     if is_wordpress:
@@ -745,18 +728,18 @@ def resume(ctx: click.Context, session: Path | None) -> None:
     else:
         _run_if_pending("wordpress.fingerprint", lambda *a, **kw: {}, cfg, report)
 
-    _run_if_pending("vuln.headers",   header_injection.run,    cfg, report)
-    _run_if_pending("vuln.sqli",      sqli_probe.run,          cfg, report, context=context)
-    _run_if_pending("vuln.lfi",       lfi_probe.run,           cfg, report)
-    _run_if_pending("vuln.cve",       cve_search.run,          cfg, report)
-    _run_if_pending("vuln.llm_probe", llm_probe.run,           cfg, report)
-    _run_if_pending("vuln.takeover",  subdomain_takeover.run,  cfg, report)
+    _run_if_pending("vuln.headers",   header_injection.run,   cfg, report)
+    _run_if_pending("vuln.sqli",      sqli_probe.run,         cfg, report, context=context)
+    _run_if_pending("vuln.lfi",       lfi_probe.run,          cfg, report)
+    _run_if_pending("vuln.cve",       cve_search.run,         cfg, report)
+    _run_if_pending("vuln.llm_probe", llm_probe.run,          cfg, report)
+    _run_if_pending("vuln.takeover",  subdomain_takeover.run, cfg, report)
 
     saved = report.save(cfg.output.dir, prefix="resume")
     report.print_summary()
-    click.echo(f"\nRapport JSON : {saved}")
-    click.echo(f"Rapport MD   : {saved.with_suffix('.md')}")
+    console.print(f"\n[bold]Rapport JSON :[/] {saved}")
+    console.print(f"[bold]Rapport MD   :[/] {saved.with_suffix('.md')}")
 
     from learnwhitehack.reporting import html_export
     html_path = html_export.export(saved)
-    click.echo(f"Rapport HTML : {html_path}")
+    console.print(f"[bold]Rapport HTML :[/] {html_path}")

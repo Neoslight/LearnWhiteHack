@@ -10,7 +10,11 @@ import logging
 import sys
 from pathlib import Path
 
+from rich.console import Console
 from rich.logging import RichHandler
+
+# Console partagée — utilisée par le CLI et le reporter pour une sortie cohérente
+console = Console()
 
 
 def setup_logging(verbose: bool = False, log_dir: str = "reports") -> logging.Logger:

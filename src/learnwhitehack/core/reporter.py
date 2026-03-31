@@ -171,13 +171,40 @@ class Report:
         return "\n".join(lines)
 
     def print_summary(self) -> None:
-        """Affiche un résumé console rapide."""
+        """Affiche un résumé console Rich avec tableau coloré par sévérité."""
+        from learnwhitehack.core.logger import console
+        from rich.table import Table
+
         s = self.summary()
         total = len(self._findings)
-        print(f"\n=== Rapport : {total} finding(s) ===")
+
+        _SEV_STYLE = {
+            "CRITICAL": "bold red",
+            "HIGH": "bold orange3",
+            "MEDIUM": "bold yellow",
+            "LOW": "bold cyan",
+            "INFO": "dim",
+        }
+
+        table = Table(
+            title=f"[bold]Rapport — {total} finding(s)[/]",
+            show_header=True,
+            header_style="bold",
+            box=None,
+            padding=(0, 2),
+        )
+        table.add_column("Sévérité", width=12)
+        table.add_column("Nombre", justify="right")
+
         for sev, count in s.items():
             if count:
-                print(f"  {sev}: {count}")
+                style = _SEV_STYLE.get(sev, "")
+                table.add_row(f"[{style}]{sev}[/]", str(count))
+
+        console.print()
+        console.print(table)
+        if self._modules_run:
+            console.print(f"[dim]Modules : {', '.join(self._modules_run)}[/]")
 
 
 def _extract_hostname(url: str) -> str:
